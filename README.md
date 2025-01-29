@@ -3,4 +3,5 @@
 오류나 궁금한거 생기면 디스코드나 텔레그램으로 연락 (텔레그램을 더 잘봄)
 
 discord : nureongibab
+
 telegram : t.me/BuetDdat
