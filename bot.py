@@ -5,7 +5,7 @@ import yt_dlp as youtube_dl
 from collections import deque
 import asyncio
 
-TOKEN = 'MTMzMzAyODQ1NDc2OTM2MDkzNg.GCuBFj.E8IMHCGShlYzVP-_aW4ZIEW7A0GIkw78lrcVGY'
+TOKEN = 'MTMzMzAyODQ1NDc2OTM2MDkzNg.GrYvVo.fRl5Bdvu2V3b4u2co1ZPJLrH0HBkG6P3KjhgNQ'
 
 # Queue structure: {guild_id: {'queue': deque(), 'loop': False, 'now_playing': None}}
 queues = {}
