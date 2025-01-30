@@ -76,7 +76,7 @@ async def play_next(ctx):
             source.volume = 1.0
             
             ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-            await ctx.send(f"🔊 Now playing: {next_song['title']}")
+            await ctx.send(f"🔊 현재 재생중: {next_song['title']}")
     except Exception as e:
         await ctx.send(f"❌ Playback Error: {str(e)}")
 
@@ -84,7 +84,7 @@ async def play_next(ctx):
 async def play(ctx, *, query):
     try:
         if not ctx.author.voice:
-            return await ctx.send("❗ Join a voice channel first!")
+            return await ctx.send("❗ 음성 채널에 들어가있지 않습니다!")
             
         voice_client = ctx.voice_client or await ctx.author.voice.channel.connect()
         
@@ -99,12 +99,12 @@ async def play(ctx, *, query):
             song = data[0] if data else None
             if song:
                 queues[guild_id]['queue'].append(song)
-                await ctx.send(f"🎶 Queued: {song['title']}")
+                await ctx.send(f"🎶 대기됨: {song['title']}")
             
                 if not voice_client.is_playing():
                     await play_next(ctx)
             else:
-                await ctx.send("❌ No results found")
+                await ctx.send("❌ 결과를 못찾았습니다")
                 
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)}")
