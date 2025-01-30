@@ -188,10 +188,10 @@ async def join(ctx):
             if ctx.voice_client.channel == ctx.author.voice.channel:
                 return await ctx.send("✅ 이미 음성 채널에 참가했습니다")
             await ctx.voice_client.move_to(ctx.author.voice.channel)
-            return await ctx.send(f"🚚 {ctx.author.voice.channel.name}로 이동했습니다")
+            return await ctx.send(f"🚚 {ctx.author.voice.channel.name}으로 이동했습니다")
             
         await ctx.author.voice.channel.connect()
-        await ctx.send(f"✅ 참가함 {ctx.author.voice.channel.name}")
+        await ctx.send(f"✅ {ctx.author.voice.channel.name}에 참가했습니다")
         
     except Exception as e:
         await ctx.send(f"❌ Connection error: {str(e)}")
