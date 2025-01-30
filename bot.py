@@ -63,6 +63,12 @@ async def play_next(ctx):
     guild_id = ctx.guild.id
     try:
         if queues[guild_id]['queue']:
+            # Check if loop exists, default to False if not
+            loop_enabled = queues[guild_id].get('loop', False)
+            
+            if loop_enabled:
+                queues[guild_id]['queue'].append(queues[guild_id]['now_playing'])
+
             next_song = queues[guild_id]['queue'].popleft()
             queues[guild_id]['now_playing'] = next_song
 
@@ -162,9 +168,13 @@ async def show_queue(ctx):
 async def loop(ctx):
     guild_id = ctx.guild.id
     if guild_id in queues:
+        # Initialize loop if not exists
+        if 'loop' not in queues[guild_id]:
+            queues[guild_id]['loop'] = False
+            
         queues[guild_id]['loop'] = not queues[guild_id]['loop']
         status = "✅ 활성화" if queues[guild_id]['loop'] else "❌ 비활성화"
-        await ctx.send(f"🔁 Loop {status}")
+        await ctx.send(f"🔁 반복 {status}")
     else:
         await ctx.send("❌ 대기열이 비었습니다")
 
