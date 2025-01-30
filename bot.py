@@ -62,35 +62,42 @@ class YTDLSource(PCMVolumeTransformer):
 async def play_next(ctx):
     guild_id = ctx.guild.id
     try:
-        if queues[guild_id]['queue']:
-            # Check if loop exists, default to False if not
-            loop_enabled = queues[guild_id].get('loop', False)
-            
-            if loop_enabled:
-                queues[guild_id]['queue'].append(queues[guild_id]['now_playing'])
+        # Check if queue exists and has items
+        if guild_id not in queues or not queues[guild_id]['queue']:
+            return
+        
+        # Get next song safely
+        next_song = queues[guild_id]['queue'].popleft()
+        if not next_song or 'url' not in next_song:
+            await ctx.send("❌ Invalid song in queue")
+            return
 
-            next_song = queues[guild_id]['queue'].popleft()
-            queues[guild_id]['now_playing'] = next_song
+        queues[guild_id]['now_playing'] = next_song
 
-            ffmpeg_options = {
-                'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-                'options': '-vn -b:a 128k'
-            }
-            
-            source = discord.FFmpegPCMAudio(next_song['url'], **ffmpeg_options)
-            source = discord.PCMVolumeTransformer(source)
-            source.volume = 1.0
-            
-            ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-            await ctx.send(f"🔊 현재 재생중: {next_song['title']}")
+        ffmpeg_options = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': '-vn -b:a 128k'
+        }
+        
+        source = discord.FFmpegPCMAudio(next_song.get('url'), **ffmpeg_options)
+        if not source:
+            raise Exception("Failed to create audio source")
+
+        source = discord.PCMVolumeTransformer(source)
+        source.volume = 1.0
+        
+        ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+        await ctx.send(f"🔊 현재 재생중: {next_song.get('title', 'Unknown Track')}")
+        
     except Exception as e:
         await ctx.send(f"❌ Playback Error: {str(e)}")
+        print(f"Detailed error: {repr(e)}")
 
 @bot.command(name='play')
 async def play(ctx, *, query):
     try:
         if not ctx.author.voice:
-            return await ctx.send("❗ 음성 채널에 들어가있지 않습니다!")
+            return await ctx.send("❗ 음성 채널에 참가하지 않았습니다!")
             
         voice_client = ctx.voice_client or await ctx.author.voice.channel.connect()
         
@@ -99,18 +106,19 @@ async def play(ctx, *, query):
             
             guild_id = ctx.guild.id
             if guild_id not in queues:
-                queues[guild_id] = {'queue': deque(), 'now_playing': None}
+                queues[guild_id] = {'queue': deque(), 'loop': False, 'now_playing': None}
             
-            # Always take first result from search
-            song = data[0] if data else None
-            if song:
+            # Filter invalid entries
+            valid_songs = [song for song in data if song and 'url' in song]
+            if not valid_songs:
+                return await ctx.send("❌ 노래를 찾을 수 없습니다")
+            
+            for song in valid_songs:
                 queues[guild_id]['queue'].append(song)
-                await ctx.send(f"🎶 대기됨: {song['title']}")
+                await ctx.send(f"🎶 대기됨: {song.get('title', 'Unknown Track')}")
             
-                if not voice_client.is_playing():
-                    await play_next(ctx)
-            else:
-                await ctx.send("❌ 결과를 못찾았습니다")
+            if not voice_client.is_playing():
+                await play_next(ctx)
                 
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)}")
