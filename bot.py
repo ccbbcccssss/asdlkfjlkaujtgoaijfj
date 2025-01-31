@@ -15,22 +15,32 @@ TOKEN = 'MY_TOKEN'
 
 queues = {}
 
-# Updated YouTubeDL configuration with search fixes
+# Combined configuration with extractor args and cookies
 ydl_opts = {
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'nocheckcertificate': True,
-    'default_search': 'ytsearch:',  # Force YouTube search prefix
     'source_address': '0.0.0.0',
+    'cookiefile': os.path.join(os.getcwd(), 'cookies.txt'),  # Method 2
+    'extractor_args': {  # Method 1
+        'youtube': {
+            'player_client': ['android', 'web'],
+            'skip': ['dash', 'hls']
+        }
+    },
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
         'preferredquality': '192',
     }],
     'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+    },
+    'retries': 3,
+    'fragment_retries': 10,
+    'skip_unavailable_fragments': True
 }
 
 intents = discord.Intents.default()
@@ -49,29 +59,37 @@ class YTDLSource(PCMVolumeTransformer):
     @classmethod
     async def from_query(cls, query, *, loop=None):
         try:
-            # Auto-add ytsearch: prefix if not a URL
+            # Auto-detect search query vs URL
             if not query.startswith(('http://', 'https://')):
                 query = f'ytsearch:{query}'
             
             with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(query, download=False)
                 return [ydl.sanitize_info(entry) for entry in info['entries']] if 'entries' in info else [ydl.sanitize_info(info)]
-        except Exception as e:
-            raise Exception(f"Search failed: {str(e)}")
+        except youtube_dl.utils.DownloadError as e:
+            if "NSIG" in str(e):
+                raise Exception("YouTube access failed - try updating cookies.txt or wait before retrying")
+            raise
 
-async def play_next(ctx):
+
+async def play_next(ctx, force=False):
     guild_id = ctx.guild.id
     try:
-        # Check if queue exists and has items
         if guild_id not in queues or not queues[guild_id]['queue']:
             return
-        
+
+        # Stop current playback if forcing (loop toggle)
+        if force and ctx.voice_client and ctx.voice_client.is_playing():
+            ctx.voice_client.stop()
+
         # Get next song safely
         next_song = queues[guild_id]['queue'].popleft()
-        if not next_song or 'url' not in next_song:
-            await ctx.send("❌ Invalid song in queue")
-            return
+        
+        # Handle looping
+        if queues[guild_id].get('loop', False):
+            queues[guild_id]['queue'].append(next_song.copy())
 
+        # Update current track
         queues[guild_id]['now_playing'] = next_song
 
         ffmpeg_options = {
@@ -79,19 +97,21 @@ async def play_next(ctx):
             'options': '-vn -b:a 128k'
         }
         
-        source = discord.FFmpegPCMAudio(next_song.get('url'), **ffmpeg_options)
-        if not source:
-            raise Exception("Failed to create audio source")
-
+        # Create new audio source
+        source = discord.FFmpegPCMAudio(next_song['url'], **ffmpeg_options)
         source = discord.PCMVolumeTransformer(source)
         source.volume = 1.0
         
-        ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-        await ctx.send(f"🔊 현재 재생중: {next_song.get('title', 'Unknown Track')}")
-        
+        # Cleanly handle playback start
+        if ctx.voice_client:
+            if ctx.voice_client.is_playing():
+                ctx.voice_client.stop()
+                
+            ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+            await ctx.send(f"🔊 현재 재생중: {next_song.get('title', 'Unknown Track')}")
+            
     except Exception as e:
         await ctx.send(f"❌ Playback Error: {str(e)}")
-        print(f"Detailed error: {repr(e)}")
 
 @bot.command(name='play')
 async def play(ctx, *, query):
@@ -176,13 +196,13 @@ async def show_queue(ctx):
 async def loop(ctx):
     guild_id = ctx.guild.id
     if guild_id in queues:
-        # Initialize loop if not exists
-        if 'loop' not in queues[guild_id]:
-            queues[guild_id]['loop'] = False
-            
         queues[guild_id]['loop'] = not queues[guild_id]['loop']
         status = "✅ 활성화" if queues[guild_id]['loop'] else "❌ 비활성화"
-        await ctx.send(f"🔁 반복 {status}")
+        await ctx.send(f"🔁 반복 재생 {status}")
+        
+        # Only force restart if not already playing
+        if queues[guild_id]['loop'] and not ctx.voice_client.is_playing():
+            await play_next(ctx, force=True)
     else:
         await ctx.send("❌ 대기열이 비었습니다")
 
