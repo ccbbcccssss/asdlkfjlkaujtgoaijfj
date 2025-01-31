@@ -72,46 +72,39 @@ class YTDLSource(PCMVolumeTransformer):
             raise
 
 
-async def play_next(ctx, force=False):
+async def play_next(ctx):
     guild_id = ctx.guild.id
     try:
         if guild_id not in queues or not queues[guild_id]['queue']:
             return
 
-        # Stop current playback if forcing (loop toggle)
-        if force and ctx.voice_client and ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
+        voice_client = ctx.voice_client
+        if not voice_client or voice_client.is_playing():
+            return
 
-        # Get next song safely
         next_song = queues[guild_id]['queue'].popleft()
         
-        # Handle looping
-        if queues[guild_id].get('loop', False):
-            queues[guild_id]['queue'].append(next_song.copy())
-
-        # Update current track
-        queues[guild_id]['now_playing'] = next_song
-
+        # Audio source creation
         ffmpeg_options = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn -b:a 128k'
         }
         
-        # Create new audio source
         source = discord.FFmpegPCMAudio(next_song['url'], **ffmpeg_options)
         source = discord.PCMVolumeTransformer(source)
         source.volume = 1.0
-        
-        # Cleanly handle playback start
-        if ctx.voice_client:
-            if ctx.voice_client.is_playing():
-                ctx.voice_client.stop()
-                
-            ctx.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-            await ctx.send(f"🔊 현재 재생중: {next_song.get('title', 'Unknown Track')}")
-            
+
+        def after_play(error):
+            if error:
+                print(f'Player error: {error}')
+            asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+
+        voice_client.play(source, after=after_play)
+        await ctx.send(f"🔊 현재 재생중: {next_song.get('title', 'Unknown Track')}")
+
     except Exception as e:
         await ctx.send(f"❌ Playback Error: {str(e)}")
+        print(f"Detailed error: {repr(e)}")
 
 @bot.command(name='play')
 async def play(ctx, *, query):
@@ -170,10 +163,19 @@ async def stop(ctx):
 
 @bot.command(name='skip')
 async def skip(ctx):
-    if ctx.voice_client:
-        ctx.voice_client.stop()
-        await ctx.send("⏭️ 스킵")
+    voice_client = ctx.voice_client
+    if voice_client and voice_client.is_playing():
+        # Disconnect after callback temporarily
+        voice_client.stop()
+        await ctx.send("⏭️ 곡을 스킵합니다")
+        
+        # Wait for clean stop
+        await asyncio.sleep(0.5)
+        
+        # Manually trigger next track
         await play_next(ctx)
+    else:
+        await ctx.send("❌ 스킵할 것이 없습니다")
 
 @bot.command(name='queue')
 async def show_queue(ctx):
